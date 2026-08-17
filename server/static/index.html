@@ -73,6 +73,25 @@
   .me { background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 6px; align-self: flex-end; }
   .note { align-self: center; font-size: 14px; color: var(--muted); text-align: center; max-width: 90%; }
   .typing { color: var(--muted); font-style: italic; }
+  .heard { font-size: 12px; opacity: .75; display: block; margin-top: 4px; font-style: italic; }
+
+  #mic {
+    flex: none;
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none; /* stop the press-and-hold gesture from scrolling */
+    user-select: none; -webkit-user-select: none;
+  }
+  #mic.recording { background: var(--accent); color: var(--accent-text); border-color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  #mic:disabled { opacity: .4; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { #mic.recording { animation: none; } }
 
   form {
     flex: none;
@@ -116,8 +135,9 @@
   </div>
 
   <form id="form">
+    <button id="mic" type="button" title="Giữ để nói" aria-label="Giữ để nói">🎤</button>
     <input id="input" autocomplete="off" autocapitalize="sentences"
-           placeholder="Viết bằng tiếng Việt…" enterkeyhint="send">
+           placeholder="Giữ 🎤 để nói…" enterkeyhint="send">
     <button id="send" type="submit">Gửi</button>
   </form>
 
@@ -147,6 +167,25 @@ function note(text) {
   log.scrollTop = log.scrollHeight;
 }
 
+function applyReply(pending, data, myBubble) {
+  sessionId = data.session_id;
+  localStorage.setItem('vp_session', sessionId);
+
+  // Show what the recogniser actually heard, so a misheard word is visible
+  // rather than silently steering the conversation.
+  if (myBubble && data.transcript) {
+    myBubble.textContent = data.transcript;
+  }
+
+  pending.textContent = data.reply;
+  pending.classList.remove('typing');
+  turns.textContent = data.turn_count + '/' + data.max_turns;
+
+  if (data.topic_complete) {
+    note('Hết chủ đề này — nhấn “Chủ đề mới” để bắt đầu lại.');
+  }
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
@@ -165,18 +204,7 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify({ message: text, session_id: sessionId })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-
-    sessionId = data.session_id;
-    localStorage.setItem('vp_session', sessionId);
-
-    pending.textContent = data.reply;
-    pending.classList.remove('typing');
-    turns.textContent = data.turn_count + '/' + data.max_turns;
-
-    if (data.topic_complete) {
-      note('Hết chủ đề này — nhấn “Chủ đề mới” để bắt đầu lại.');
-    }
+    applyReply(pending, await res.json(), null);
   } catch (err) {
     pending.textContent = 'Lỗi kết nối: ' + err.message;
     pending.classList.remove('typing');
@@ -185,6 +213,88 @@ form.addEventListener('submit', async (e) => {
     input.focus();
   }
 });
+
+/* ---- hold-to-talk ---- */
+const mic = document.getElementById('mic');
+let recorder = null, chunks = [], stream = null;
+
+function pickMimeType() {
+  // Chrome gives webm/opus, Safari gives mp4/aac. Both decode server-side.
+  for (const t of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return '';
+}
+
+async function startRecording() {
+  if (recorder) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    note('Trình duyệt chặn micro vì trang không dùng HTTPS. '
+       + 'Mic is blocked because this page is not served over HTTPS — '
+       + 'run ./scripts/make_cert.sh on the laptop.');
+    return;
+  }
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    note('Không dùng được micro: ' + err.name);
+    return;
+  }
+
+  const mimeType = pickMimeType();
+  recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.start();
+  mic.classList.add('recording');
+}
+
+async function stopRecording() {
+  if (!recorder) return;
+  const rec = recorder;
+  recorder = null;
+  mic.classList.remove('recording');
+
+  const finished = new Promise((resolve) => { rec.onstop = resolve; });
+  rec.stop();
+  await finished;
+  stream.getTracks().forEach((t) => t.stop());
+
+  const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+  if (blob.size < 1200) {           // a tap rather than a held press
+    note('Giữ nút lâu hơn một chút nhé.');
+    return;
+  }
+
+  const myBubble = add('🎤 …', 'me');
+  const pending = add('…', 'them typing');
+  mic.disabled = send.disabled = true;
+
+  try {
+    const fd = new FormData();
+    fd.append('audio', blob, 'turn.webm');
+    if (sessionId) fd.append('session_id', sessionId);
+
+    const res = await fetch('/voice', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    if (!data.transcript) myBubble.textContent = '🎤 (không nghe rõ)';
+    applyReply(pending, data, myBubble);
+  } catch (err) {
+    pending.textContent = 'Lỗi kết nối: ' + err.message;
+    pending.classList.remove('typing');
+  } finally {
+    mic.disabled = send.disabled = false;
+  }
+}
+
+mic.addEventListener('pointerdown', (e) => { e.preventDefault(); startRecording(); });
+mic.addEventListener('pointerup', (e) => { e.preventDefault(); stopRecording(); });
+mic.addEventListener('pointercancel', () => stopRecording());
+mic.addEventListener('pointerleave', () => { if (recorder) stopRecording(); });
+mic.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.getElementById('reset').addEventListener('click', async () => {
   await fetch('/session/reset', {

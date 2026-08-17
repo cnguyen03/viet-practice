@@ -1,19 +1,32 @@
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from server import session as session_store
-from server.config import HOST, MAX_TURNS_PER_TOPIC, PORT, PROGRESS_JSON_PATH, STATIC_DIR
+from server.config import (
+    CERT_FILE,
+    HOST,
+    KEY_FILE,
+    MAX_TURNS_PER_TOPIC,
+    PORT,
+    PROGRESS_JSON_PATH,
+    STATIC_DIR,
+    tls_available,
+)
 from server.llm import chat, load_progress
 from server.net import startup_banner
+from server.stt import get_model, transcribe
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(startup_banner(PORT), flush=True)
+    # Load Whisper up front so the first spoken turn isn't 15s slower than the rest.
+    await asyncio.to_thread(get_model)
+    print(startup_banner(PORT, tls_available()), flush=True)
     yield
 
 
@@ -33,6 +46,10 @@ class ChatResponse(BaseModel):
     topic_complete: bool
 
 
+class VoiceResponse(ChatResponse):
+    transcript: str
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -46,6 +63,42 @@ def chat_endpoint(req: ChatRequest):
     return ChatResponse(
         reply=reply,
         session_id=session_id,
+        turn_count=state.turn_count,
+        max_turns=MAX_TURNS_PER_TOPIC,
+        topic_complete=state.should_wrap_up(),
+    )
+
+
+@app.post("/voice", response_model=VoiceResponse)
+async def voice_endpoint(
+    audio: UploadFile = File(...),
+    session_id: str | None = Form(None),
+):
+    """Spoken turn: transcribe the recording, then answer it.
+
+    Transcript comes back alongside the reply so the user can see what was
+    actually heard — important when a misheard word is what derailed the answer.
+    """
+    raw = await audio.read()
+    transcript = await asyncio.to_thread(transcribe, raw)
+
+    sid, state = session_store.get_or_create(session_id)
+    if not transcript:
+        return VoiceResponse(
+            transcript="",
+            reply="Mình chưa nghe rõ. Bạn nói lại được không?",
+            session_id=sid,
+            turn_count=state.turn_count,
+            max_turns=MAX_TURNS_PER_TOPIC,
+            topic_complete=state.should_wrap_up(),
+        )
+
+    progress = load_progress(PROGRESS_JSON_PATH)
+    reply = await asyncio.to_thread(chat, state, transcript, progress)
+    return VoiceResponse(
+        transcript=transcript,
+        reply=reply,
+        session_id=sid,
         turn_count=state.turn_count,
         max_turns=MAX_TURNS_PER_TOPIC,
         topic_complete=state.should_wrap_up(),
@@ -71,4 +124,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server.main:app", host=HOST, port=PORT)
+    ssl = (
+        {"ssl_certfile": str(CERT_FILE), "ssl_keyfile": str(KEY_FILE)}
+        if tls_available()
+        else {}
+    )
+    uvicorn.run("server.main:app", host=HOST, port=PORT, **ssl)

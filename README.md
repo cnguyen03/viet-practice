@@ -8,9 +8,9 @@ Vocabulary and progress are grounded in your real Duolingo data, synced to a loc
 
 Build follows a phased plan (see project history / plan doc):
 1. ✅ Core loop: text-only `/chat` endpoint against Ollama, grounded in the local progress JSON.
-2. Phone-accessible web client over a laptop-hosted hotspot.
-3. Speech-to-text (faster-whisper).
-4. Text-to-speech (Piper) + turn-cap / correction-loop session logic.
+2. ✅ Phone-accessible web client over a laptop-hosted hotspot.
+3. ✅ Speech-to-text (faster-whisper), hold-to-talk mic on the phone.
+4. Text-to-speech + turn-cap / correction-loop session logic.
 5. Duolingo sync script.
 
 ## Setup
@@ -21,17 +21,34 @@ brew services start ollama   # if not already running
 ollama pull qwen2.5:7b-instruct
 ```
 
-## Run (Phase 1)
+## Run
 
 ```bash
-uv run uvicorn server.main:app --host 127.0.0.1 --port 8000
+./scripts/make_cert.sh          # once — HTTPS is required for phone mic access
+uv run python -m server.main
 ```
 
+The server prints the URL to open on your phone. HTTPS is not optional here:
+browsers only allow microphone access on a secure context, and a plain-HTTP
+LAN address does not qualify.
+
 ```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Xin chào"}'
+# text turn
+curl -k -X POST https://localhost:8000/chat \
+  -H "Content-Type: application/json" -d '{"message":"Xin chào"}'
+
+# spoken turn
+curl -k -X POST https://localhost:8000/voice -F "audio=@recording.wav"
 ```
+
+## Offline hotspot
+
+```bash
+sudo ./scripts/setup_hotspot.sh
+```
+
+Creates a dummy loopback network service so macOS Internet Sharing will
+broadcast Wi-Fi with no upstream connection, then prints the GUI steps.
 
 ## Duolingo sync (Phase 5)
 
