@@ -11,7 +11,7 @@ Build follows a phased plan (see project history / plan doc):
 2. ✅ Phone-accessible web client over a laptop-hosted hotspot.
 3. ✅ Speech-to-text (faster-whisper), hold-to-talk mic on the phone.
 4. ✅ Text-to-speech (macOS `Linh` vi_VN voice) + correction-loop session logic.
-5. Duolingo sync script.
+5. ✅ Vocabulary management (`scripts/vocab.py` + `/update-vocab` skill).
 
 ## Setup
 
@@ -64,10 +64,32 @@ sudo ./scripts/setup_hotspot.sh
 Creates a dummy loopback network service so macOS Internet Sharing will
 broadcast Wi-Fi with no upstream connection, then prints the GUI steps.
 
-## Duolingo sync (Phase 5)
+## Vocabulary
 
-Copy `.env.example` to `.env` and fill in your Duolingo credentials (never committed). Run the sync script while on wifi, before a trip:
+`data/vietnamese_progress.json` decides what the agent talks about and which
+words it reinforces. It is gitignored; `data/vietnamese_progress.example.json`
+shows the shape.
+
+**Why it isn't synced from Duolingo:** Duolingo has no official public API, the
+unofficial Python client stopped working around 2023 (login and vocabulary
+endpoints both broken), and the available Duolingo MCP servers expose profile
+and streak data but no word list. So vocabulary is supplied directly instead.
 
 ```bash
-uv run scripts/sync_duolingo.py
+# add words (JSON on stdin); missing translations/examples are filled
+# in by the local Ollama model
+cat <<'JSON' | uv run scripts/vocab.py add
+[{"vi": "chợ", "en": "market", "strength": 0.4}]
+JSON
+
+uv run scripts/vocab.py show      # counts + which entries are incomplete
+uv run scripts/vocab.py enrich    # fill gaps left earlier
 ```
+
+Entries with `strength` >= 0.6 are used freely in conversation; below that they
+are treated as shaky and deliberately worked in for practice.
+
+In Claude Code, the `/update-vocab` skill does this for you — paste the words
+you've learned, or say which unit you've reached, and it writes the entries.
+
+A running server needs no restart: the file is re-read on every message.
