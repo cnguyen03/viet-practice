@@ -27,5 +27,7 @@ WHISPER_DOWNLOAD_DIR = PROJECT_ROOT / "models" / "whisper"
 WHISPER_COMPUTE_TYPE = "int8"  # fast on Apple Silicon CPU; float16 needs CUDA
 SPOKEN_LANGUAGE = "vi"
 
-# Populated in Phase 4:
-PIPER_VOICE = "vi_VN-vais1000-medium"
+# macOS ships a Vietnamese voice, so no extra TTS model is needed. Check with:
+#   say -v '?' | grep vi_VN
+TTS_VOICE = "Linh"
+TTS_RATE_WPM = 160  # a little under the 180 default — easier for a learner

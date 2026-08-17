@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -20,6 +20,7 @@ from server.config import (
 from server.llm import chat, load_progress
 from server.net import startup_banner
 from server.stt import get_model, transcribe
+from server.tts import synthesize
 
 
 @asynccontextmanager
@@ -103,6 +104,18 @@ async def voice_endpoint(
         max_turns=MAX_TURNS_PER_TOPIC,
         topic_complete=state.should_wrap_up(),
     )
+
+
+class SpeakRequest(BaseModel):
+    text: str
+
+
+@app.post("/speak")
+async def speak_endpoint(req: SpeakRequest):
+    """Render a reply to speech. Kept separate from /chat so the text can
+    appear immediately, and so a line can be replayed without re-asking."""
+    wav = await asyncio.to_thread(synthesize, req.text)
+    return Response(content=wav, media_type="audio/wav")
 
 
 @app.post("/session/reset")

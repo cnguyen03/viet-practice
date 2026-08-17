@@ -74,6 +74,8 @@
   .note { align-self: center; font-size: 14px; color: var(--muted); text-align: center; max-width: 90%; }
   .typing { color: var(--muted); font-style: italic; }
   .heard { font-size: 12px; opacity: .75; display: block; margin-top: 4px; font-style: italic; }
+  .speakable { cursor: pointer; }
+  .speakable:active { opacity: .7; }
 
   #mic {
     flex: none;
@@ -150,6 +152,40 @@ const turns = document.getElementById('turns');
 
 let sessionId = localStorage.getItem('vp_session') || null;
 
+/* ---- speech playback ----
+   Mobile browsers only allow audio from a user gesture. We keep ONE Audio
+   element and "unlock" it on the first tap, so later replies (which arrive
+   asynchronously, long after the gesture) are still allowed to play. */
+const player = new Audio();
+let audioUnlocked = false;
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  // A silent 1-sample wav: playing it inside the gesture blesses the element.
+  player.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+  player.play().catch(() => {});
+}
+document.addEventListener('pointerdown', unlockAudio, { once: true });
+
+async function speak(text) {
+  if (!text) return;
+  try {
+    const res = await fetch('/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) return;
+    const url = URL.createObjectURL(await res.blob());
+    player.src = url;
+    player.onended = () => URL.revokeObjectURL(url);
+    await player.play();
+  } catch (err) {
+    /* playback is a nicety — never break the conversation over it */
+  }
+}
+
 function add(text, cls) {
   const el = document.createElement('div');
   el.className = 'msg ' + cls;
@@ -179,7 +215,12 @@ function applyReply(pending, data, myBubble) {
 
   pending.textContent = data.reply;
   pending.classList.remove('typing');
+  pending.classList.add('speakable');
+  pending.title = 'Nhấn để nghe lại';
+  pending.onclick = () => speak(data.reply);   // tap a line to hear it again
   turns.textContent = data.turn_count + '/' + data.max_turns;
+
+  speak(data.reply);
 
   if (data.topic_complete) {
     note('Hết chủ đề này — nhấn “Chủ đề mới” để bắt đầu lại.');
