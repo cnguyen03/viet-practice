@@ -49,15 +49,39 @@
     align-items: center;
     gap: 12px;
   }
-  header h1 { font-size: 17px; margin: 0; font-weight: 600; flex: 1; }
+  header h1 {
+    font-size: 17px; margin: 0; font-weight: 600; flex: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   #turns { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  #reset {
+  header button {
     font: inherit; font-size: 14px;
     background: none; border: 1px solid var(--border);
     color: var(--muted); border-radius: 999px;
-    padding: 6px 14px; cursor: pointer;
+    padding: 6px 12px; cursor: pointer; flex: none;
   }
-  #reset:active { background: var(--border); }
+  header button:active { background: var(--border); }
+  #reset { padding: 6px 11px; font-size: 16px; line-height: 1; }
+  #hf.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+  #status {
+    display: none;
+    padding: 8px 16px;
+    font-size: 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+  }
+  #status.on { display: block; }
+  #status.live { color: var(--accent); }
+  #status.rec { color: var(--accent); font-weight: 600; }
+  #status.rec::before, #status.live::before {
+    content: '●'; margin-right: 7px;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #status.rec::before, #status.live::before { animation: none; }
+  }
 
   #log {
     flex: 1;
@@ -129,12 +153,15 @@
   <header>
     <h1>Luyện tiếng Việt</h1>
     <span id="turns"></span>
-    <button id="reset" type="button">Chủ đề mới</button>
+    <button id="hf" type="button">Rảnh tay</button>
+    <button id="reset" type="button" title="Chủ đề mới" aria-label="Chủ đề mới">↻</button>
   </header>
 
   <div id="log">
-    <div class="note">Nhắn “Xin chào” để bắt đầu.<br>Say hello to start a conversation.</div>
+    <div class="note">Nhắn “Xin chào” để bắt đầu.<br>Say hello, or tap “Rảnh tay” for hands-free.</div>
   </div>
+
+  <div id="status" aria-live="polite"></div>
 
   <form id="form">
     <button id="mic" type="button" title="Giữ để nói" aria-label="Giữ để nói">🎤</button>
@@ -168,6 +195,8 @@ function unlockAudio() {
 }
 document.addEventListener('pointerdown', unlockAudio, { once: true });
 
+// Resolves when playback actually finishes, so hands-free mode knows when it
+// is safe to listen again without recording the agent's own voice.
 async function speak(text) {
   if (!text) return;
   try {
@@ -178,9 +207,30 @@ async function speak(text) {
     });
     if (!res.ok) return;
     const url = URL.createObjectURL(await res.blob());
-    player.src = url;
-    player.onended = () => URL.revokeObjectURL(url);
-    await player.play();
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(guard);
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      // Playback can stall indefinitely — a backgrounded tab, a locked phone,
+      // an interrupted audio session. Never let that strand hands-free mode
+      // waiting for an "ended" event that will not arrive. Start with a short
+      // fuse for "never even loaded", then extend to the real clip length once
+      // we know it.
+      let guard = setTimeout(finish, 10000);
+      player.onloadedmetadata = () => {
+        clearTimeout(guard);
+        const ms = isFinite(player.duration) ? player.duration * 1000 + 3000 : 30000;
+        guard = setTimeout(finish, ms);
+      };
+      player.src = url;
+      player.onended = player.onerror = player.onpause = finish;
+      player.play().catch(finish);
+    });
   } catch (err) {
     /* playback is a nicety — never break the conversation over it */
   }
@@ -220,11 +270,10 @@ function applyReply(pending, data, myBubble) {
   pending.onclick = () => speak(data.reply);   // tap a line to hear it again
   turns.textContent = data.turn_count + '/' + data.max_turns;
 
-  speak(data.reply);
-
   if (data.topic_complete) {
     note('Hết chủ đề này — nhấn “Chủ đề mới” để bắt đầu lại.');
   }
+  return speak(data.reply);
 }
 
 form.addEventListener('submit', async (e) => {
@@ -255,9 +304,10 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-/* ---- hold-to-talk ---- */
+/* ---- shared audio plumbing ---- */
 const mic = document.getElementById('mic');
-let recorder = null, chunks = [], stream = null;
+const hfBtn = document.getElementById('hf');
+const status = document.getElementById('status');
 
 function pickMimeType() {
   // Chrome gives webm/opus, Safari gives mp4/aac. Both decode server-side.
@@ -267,24 +317,65 @@ function pickMimeType() {
   return '';
 }
 
-async function startRecording() {
-  if (recorder) return;
+async function getMic() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     note('Trình duyệt chặn micro vì trang không dùng HTTPS. '
        + 'Mic is blocked because this page is not served over HTTPS — '
        + 'run ./scripts/make_cert.sh on the laptop.');
-    return;
+    return null;
   }
-
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        // Matters in a car or bus, and stops the agent's own voice from
+        // being picked up while hands-free mode is listening.
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
   } catch (err) {
     note('Không dùng được micro: ' + err.name);
-    return;
+    return null;
   }
+}
+
+/* Send one recorded utterance and render the exchange. Returns when the
+   spoken reply has finished playing. */
+async function sendUtterance(blob) {
+  const myBubble = add('🎤 …', 'me');
+  const pending = add('…', 'them typing');
+  mic.disabled = send.disabled = true;
+
+  try {
+    const fd = new FormData();
+    fd.append('audio', blob, 'turn.webm');
+    if (sessionId) fd.append('session_id', sessionId);
+
+    const res = await fetch('/voice', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    if (!data.transcript) myBubble.textContent = '🎤 (không nghe rõ)';
+    await applyReply(pending, data, myBubble);
+  } catch (err) {
+    pending.textContent = 'Lỗi kết nối: ' + err.message;
+    pending.classList.remove('typing');
+  } finally {
+    mic.disabled = send.disabled = false;
+  }
+}
+
+/* ---- hold-to-talk ---- */
+let recorder = null, chunks = [], holdStream = null;
+
+async function startRecording() {
+  if (recorder || HF.on) return;
+  holdStream = await getMic();
+  if (!holdStream) return;
 
   const mimeType = pickMimeType();
-  recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  recorder = new MediaRecorder(holdStream, mimeType ? { mimeType } : undefined);
   chunks = [];
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   recorder.start();
@@ -300,35 +391,14 @@ async function stopRecording() {
   const finished = new Promise((resolve) => { rec.onstop = resolve; });
   rec.stop();
   await finished;
-  stream.getTracks().forEach((t) => t.stop());
+  holdStream.getTracks().forEach((t) => t.stop());
 
   const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
   if (blob.size < 1200) {           // a tap rather than a held press
     note('Giữ nút lâu hơn một chút nhé.');
     return;
   }
-
-  const myBubble = add('🎤 …', 'me');
-  const pending = add('…', 'them typing');
-  mic.disabled = send.disabled = true;
-
-  try {
-    const fd = new FormData();
-    fd.append('audio', blob, 'turn.webm');
-    if (sessionId) fd.append('session_id', sessionId);
-
-    const res = await fetch('/voice', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-
-    if (!data.transcript) myBubble.textContent = '🎤 (không nghe rõ)';
-    applyReply(pending, data, myBubble);
-  } catch (err) {
-    pending.textContent = 'Lỗi kết nối: ' + err.message;
-    pending.classList.remove('typing');
-  } finally {
-    mic.disabled = send.disabled = false;
-  }
+  await sendUtterance(blob);
 }
 
 mic.addEventListener('pointerdown', (e) => { e.preventDefault(); startRecording(); });
@@ -336,6 +406,171 @@ mic.addEventListener('pointerup', (e) => { e.preventDefault(); stopRecording(); 
 mic.addEventListener('pointercancel', () => stopRecording());
 mic.addEventListener('pointerleave', () => { if (recorder) stopRecording(); });
 mic.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ---- hands-free (open mic) ----
+   The recorder runs from the moment we start listening; the voice detector
+   only decides WHEN TO STOP. Cutting the recording at the moment speech is
+   detected would clip the first consonant and produce an unplayable partial
+   container, and Whisper strips the leading silence server-side anyway. */
+const FRAME_MS = 50;
+const SILENCE_HANGOVER_MS = 1200;   // quiet this long ends your turn
+const MIN_SPEECH_MS = 350;          // shorter than this is a cough, not a turn
+const MAX_SEGMENT_MS = 20000;       // hard stop so one turn can't run away
+const IDLE_RESTART_MS = 8000;       // recycle the recorder while nobody speaks
+
+const HF = {
+  on: false, stream: null, ctx: null, analyser: null, buf: null,
+  rec: null, chunks: [], timer: null, wakeLock: null,
+  noiseFloor: 0.01, speechMs: 0, silenceMs: 0, segmentMs: 0, heardSpeech: false
+};
+
+function setStatus(text, cls) {
+  status.textContent = text;
+  status.className = cls ? 'on ' + cls : (text ? 'on' : '');
+}
+
+function rms() {
+  HF.analyser.getByteTimeDomainData(HF.buf);
+  let sum = 0;
+  for (let i = 0; i < HF.buf.length; i++) {
+    const v = (HF.buf[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / HF.buf.length);
+}
+
+function startSegment() {
+  HF.chunks = [];
+  HF.speechMs = HF.silenceMs = HF.segmentMs = 0;
+  HF.heardSpeech = false;
+  const mimeType = pickMimeType();
+  HF.rec = new MediaRecorder(HF.stream, mimeType ? { mimeType } : undefined);
+  HF.rec.ondataavailable = (e) => { if (e.data.size) HF.chunks.push(e.data); };
+  HF.rec.start();
+}
+
+function stopSegment() {
+  return new Promise((resolve) => {
+    if (!HF.rec) return resolve(null);
+    const rec = HF.rec;
+    HF.rec = null;
+    rec.onstop = () => resolve(new Blob(HF.chunks, { type: rec.mimeType || 'audio/webm' }));
+    rec.stop();
+  });
+}
+
+async function hfTick() {
+  if (!HF.on || !HF.rec) return;
+  const level = rms();
+  const threshold = HF.noiseFloor * 2.2 + 0.008;
+  HF.segmentMs += FRAME_MS;
+
+  if (level > threshold) {
+    HF.speechMs += FRAME_MS;
+    HF.silenceMs = 0;
+    if (HF.speechMs >= MIN_SPEECH_MS && !HF.heardSpeech) {
+      HF.heardSpeech = true;
+      setStatus('Đang ghi âm…', 'rec');
+    }
+  } else {
+    // Track the ambient level while nobody is talking, so road noise raises
+    // the bar instead of constantly triggering it.
+    HF.noiseFloor = HF.noiseFloor * 0.98 + level * 0.02;
+    if (HF.heardSpeech) HF.silenceMs += FRAME_MS;
+  }
+
+  const endOfTurn = HF.heardSpeech && HF.silenceMs >= SILENCE_HANGOVER_MS;
+  const tooLong = HF.segmentMs >= MAX_SEGMENT_MS && HF.heardSpeech;
+
+  if (endOfTurn || tooLong) {
+    clearInterval(HF.timer); HF.timer = null;
+    setStatus('Đang nghĩ…', 'busy');
+    try {
+      const blob = await stopSegment();
+      if (blob && blob.size > 1200) await sendUtterance(blob);
+    } finally {
+      // Whatever went wrong, start listening again — going silently deaf is
+      // the one failure the user cannot recover from without noticing.
+      if (HF.on) armListening();
+    }
+    return;
+  }
+
+  // Nobody has spoken for a while — restart so we don't upload minutes of silence.
+  if (!HF.heardSpeech && HF.segmentMs >= IDLE_RESTART_MS) {
+    await stopSegment();
+    if (HF.on) startSegment();
+  }
+}
+
+function armListening() {
+  if (!HF.on) return;
+  setStatus('Đang nghe… (nói tự nhiên)', 'live');
+  startSegment();
+  clearInterval(HF.timer);
+  HF.timer = setInterval(hfTick, FRAME_MS);
+}
+
+async function handsFreeOn() {
+  HF.stream = await getMic();
+  if (!HF.stream) return;
+
+  HF.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (HF.ctx.state === 'suspended') {
+    // resume() only settles when the browser sees this as a user gesture; if
+    // it never does, fail loudly instead of leaving the button stuck.
+    await Promise.race([
+      HF.ctx.resume(),
+      new Promise((r) => setTimeout(r, 3000))
+    ]);
+    if (HF.ctx.state === 'suspended') {
+      note('Không bật được micro — hãy nhấn lại nút “Rảnh tay”. '
+         + '(Audio could not start; tap the button again.)');
+      HF.stream.getTracks().forEach((t) => t.stop());
+      try { await HF.ctx.close(); } catch (e) {}
+      HF.stream = HF.ctx = null;
+      return;
+    }
+  }
+  HF.analyser = HF.ctx.createAnalyser();
+  HF.analyser.fftSize = 1024;
+  HF.buf = new Uint8Array(HF.analyser.fftSize);
+  HF.ctx.createMediaStreamSource(HF.stream).connect(HF.analyser);
+  HF.noiseFloor = 0.01;
+
+  // Without this the screen sleeps mid-conversation and the timer stops.
+  try { HF.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
+
+  HF.on = true;
+  hfBtn.classList.add('active');
+  hfBtn.textContent = 'Tắt rảnh tay';
+  mic.disabled = true;
+  armListening();
+}
+
+async function handsFreeOff() {
+  HF.on = false;
+  clearInterval(HF.timer); HF.timer = null;
+  await stopSegment();
+  if (HF.stream) HF.stream.getTracks().forEach((t) => t.stop());
+  if (HF.ctx) { try { await HF.ctx.close(); } catch (e) {} }
+  if (HF.wakeLock) { try { await HF.wakeLock.release(); } catch (e) {} HF.wakeLock = null; }
+  HF.stream = HF.ctx = HF.analyser = null;
+
+  hfBtn.classList.remove('active');
+  hfBtn.textContent = 'Rảnh tay';
+  mic.disabled = false;
+  setStatus('', '');
+}
+
+hfBtn.addEventListener('click', () => (HF.on ? handsFreeOff() : handsFreeOn()));
+
+// Re-take the wake lock when coming back from a screen lock or tab switch.
+document.addEventListener('visibilitychange', async () => {
+  if (HF.on && document.visibilityState === 'visible' && !HF.wakeLock) {
+    try { HF.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+});
 
 document.getElementById('reset').addEventListener('click', async () => {
   await fetch('/session/reset', {

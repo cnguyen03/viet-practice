@@ -134,14 +134,25 @@ spoken back.
 > Speak *after* pressing, and hold until you've finished. A quick tap records
 > too little audio and is rejected.
 
-### 5. Optional: add to your home screen
+### 5. Try hands-free mode
+
+Tap **Rảnh tay** and put the phone down. It listens continuously, works out
+when you've finished speaking (about 1.2 s of quiet), sends the turn, speaks
+the reply, then listens again — no tapping at all. A status bar shows whether
+it is listening, recording, or thinking.
+
+It keeps the screen awake while active, because browsers throttle background
+timers and voice detection stops working once the page is hidden. **Leave the
+page in the foreground.** Tap **Tắt rảnh tay** to stop and release the mic.
+
+### 6. Optional: add to your home screen
 
 - **iPhone** — Share → *Add to Home Screen*
 - **Android** — menu → *Add to Home screen*
 
 This gives it an icon and opens it without browser chrome.
 
-### 6. Bookmark the offline address
+### 7. Bookmark the offline address
 
 During a trip the laptop's address will be **`https://192.168.2.1:8000`**, not
 whatever your home Wi-Fi gave it. Bookmark that now — the certificate already
@@ -244,6 +255,9 @@ supplied directly instead.
 | Certificate warning after switching networks | The cert lists specific IPs. Re-run `./scripts/make_cert.sh` and reload. |
 | First reply takes ~20 s | Ollama is loading the model into memory. Subsequent replies are much faster. |
 | "Giữ nút lâu hơn" (hold the button longer) | The recording was too short. Press, speak, then release. |
+| Hands-free stops reacting | The page was backgrounded or the screen slept, which throttles the detector. Bring it back to the foreground; it re-arms automatically. |
+| Hands-free cuts you off mid-sentence | It ends a turn after ~1.2 s of quiet. Pause less, or raise `SILENCE_HANGOVER_MS` in `server/static/index.html`. |
+| Hands-free triggers on road noise | The noise floor adapts, but in a loud car raise the `0.008` floor in the threshold formula (same file). |
 | Agent uses words you don't know | Your vocabulary file is thin. Add more with `scripts/vocab.py` — conversation quality depends heavily on it. |
 
 ---
