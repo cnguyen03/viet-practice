@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass, field
 
 from server.config import MAX_TURNS_PER_TOPIC
@@ -25,3 +26,21 @@ class SessionState:
         self.topic = new_topic
         self.turn_count = 0
         self.in_correction_loop = False
+        self.history = []
+
+
+# Sessions are keyed by an id the client holds, so several devices (or a phone
+# and the laptop) can practice at once without sharing conversation history.
+_sessions: dict[str, SessionState] = {}
+
+
+def get_or_create(session_id: str | None) -> tuple[str, SessionState]:
+    if session_id and session_id in _sessions:
+        return session_id, _sessions[session_id]
+    new_id = session_id or uuid.uuid4().hex
+    _sessions[new_id] = SessionState()
+    return new_id, _sessions[new_id]
+
+
+def drop(session_id: str) -> None:
+    _sessions.pop(session_id, None)

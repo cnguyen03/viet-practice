@@ -6,6 +6,7 @@ OLLAMA_MODEL = "qwen2.5:7b-instruct"
 OLLAMA_HOST = "http://localhost:11434"
 
 PROGRESS_JSON_PATH = PROJECT_ROOT / "data" / "vietnamese_progress.json"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 HOST = "0.0.0.0"
 PORT = 8000
