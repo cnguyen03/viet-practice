@@ -1,0 +1,48 @@
+{
+  "synced_at": "2026-01-01T09:00:00-08:00",
+  "streak_days": 30,
+  "level": 5,
+  "skills": [
+    { "name": "Greetings", "strength": 0.95, "golden": true },
+    { "name": "Family", "strength": 0.7, "golden": false },
+    { "name": "Food", "strength": 0.4, "golden": false }
+  ],
+  "known_words": [
+    {
+      "vi": "xin chào",
+      "en": "hello",
+      "strength": 0.98,
+      "example_sentences": [
+        { "vi": "Xin chào, bạn khỏe không?", "en": "Hello, how are you?" }
+      ]
+    },
+    {
+      "vi": "cảm ơn",
+      "en": "thank you",
+      "strength": 0.95,
+      "example_sentences": [
+        { "vi": "Cảm ơn bạn rất nhiều.", "en": "Thank you very much." }
+      ]
+    },
+    {
+      "vi": "gia đình",
+      "en": "family",
+      "strength": 0.8,
+      "example_sentences": [
+        { "vi": "Gia đình tôi có bốn người.", "en": "My family has four people." }
+      ]
+    }
+  ],
+  "weak_words": [
+    {
+      "vi": "mặc dù",
+      "en": "although",
+      "strength": 0.3
+    },
+    {
+      "vi": "nhà hàng",
+      "en": "restaurant",
+      "strength": 0.35
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[project]
+name = "viet-practice"
+version = "0.1.0"
+description = "Fully local, offline Vietnamese speaking-practice agent"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "ollama>=0.4",
+    "python-dotenv>=1.0",
+    "websockets>=13.1",
+]
