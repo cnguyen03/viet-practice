@@ -1,9 +1,7 @@
 # viet-practice
 
 A Vietnamese speaking-practice partner that runs entirely on your laptop. The
-LLM, the speech recognition, and the voice are all local, so a session needs no
-internet and no cell signal — the laptop broadcasts its own Wi-Fi network and
-your phone joins it directly. Built for practising on a bus or in a car.
+LLM, the speech recognition, and the voice are all local, so a session does not require internet or cell signal. The laptop broadcasts its own Wi-Fi network and your phone joins it directly. Built for practicing on a bus or a car while traveling. 
 
 You speak Vietnamese into your phone; the agent replies out loud, keeps the
 conversation on one topic, and when you get stuck it teaches you a phrase and
@@ -99,8 +97,7 @@ before involving the phone.
 
 ## Part 2 — Phone setup (client)
 
-Do this once, at home, while both devices are on the same Wi-Fi. It is far
-easier to sort out now than on a bus.
+Do this once, at home, while both devices are on the same Wi-Fi.
 
 ### 1. Open the page
 
