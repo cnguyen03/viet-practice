@@ -53,7 +53,6 @@
     font-size: 17px; margin: 0; font-weight: 600; flex: 1;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #turns { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
   header button {
     font: inherit; font-size: 14px;
     background: none; border: 1px solid var(--border);
@@ -152,7 +151,6 @@
 <body>
   <header>
     <h1>Luyện tiếng Việt</h1>
-    <span id="turns"></span>
     <button id="hf" type="button">Rảnh tay</button>
     <button id="reset" type="button" title="Chủ đề mới" aria-label="Chủ đề mới">↻</button>
   </header>
@@ -175,7 +173,6 @@ const log = document.getElementById('log');
 const form = document.getElementById('form');
 const input = document.getElementById('input');
 const send = document.getElementById('send');
-const turns = document.getElementById('turns');
 
 let sessionId = localStorage.getItem('vp_session') || null;
 
@@ -268,7 +265,6 @@ function applyReply(pending, data, myBubble) {
   pending.classList.add('speakable');
   pending.title = 'Nhấn để nghe lại';
   pending.onclick = () => speak(data.reply);   // tap a line to hear it again
-  turns.textContent = data.turn_count + '/' + data.max_turns;
 
   if (data.topic_complete) {
     note('Hết chủ đề này — nhấn “Chủ đề mới” để bắt đầu lại.');
@@ -579,7 +575,6 @@ document.getElementById('reset').addEventListener('click', async () => {
     body: JSON.stringify({ message: '', session_id: sessionId })
   });
   log.innerHTML = '';
-  turns.textContent = '';
   note('Chủ đề mới. Nhắn “Xin chào” để bắt đầu.');
 });
 </script>
