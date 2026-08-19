@@ -100,6 +100,33 @@
   .speakable { cursor: pointer; }
   .speakable:active { opacity: .7; }
 
+  /* Feedback on your Vietnamese — English, on screen only, never spoken. */
+  .fb {
+    align-self: stretch;
+    font-size: 14px; line-height: 1.45;
+    padding: 9px 13px;
+    border-radius: 10px;
+    border-left: 3px solid var(--fb-accent);
+    background: var(--fb-bg);
+    color: var(--text);
+  }
+  .fb.good      { --fb-accent: #3f9c5a; --fb-bg: rgba(63,156,90,.10); }
+  .fb.needs_work{ --fb-accent: #c98a2e; --fb-bg: rgba(201,138,46,.12); }
+  .fb.unintelligible { --fb-accent: #8a8a8a; --fb-bg: rgba(138,138,138,.12); }
+  .fb .label { font-weight: 600; margin-right: 5px; }
+  .fb .fix {
+    display: block; margin-top: 6px;
+    font-size: 15px; font-weight: 600;
+    cursor: pointer;
+  }
+  .fb .fix:active { opacity: .7; }
+
+  /* English translation under a Vietnamese reply. */
+  .gloss {
+    display: block; margin-top: 5px;
+    font-size: 13px; opacity: .7;
+  }
+
   #mic {
     flex: none;
     width: 46px; height: 46px;
@@ -260,11 +287,41 @@ function applyReply(pending, data, myBubble) {
     myBubble.textContent = data.transcript;
   }
 
+  // Feedback on what you just said goes above the reply, so you read the
+  // correction before the conversation moves on.
+  if (data.feedback) {
+    const fb = document.createElement('div');
+    fb.className = 'fb ' + (data.assessment || 'good');
+    const label = { good: '✓', needs_work: 'Fix', unintelligible: '?' }[data.assessment] || '';
+    fb.innerHTML = '<span class="label"></span><span class="body"></span>';
+    fb.querySelector('.label').textContent = label;
+    fb.querySelector('.body').textContent = data.feedback;
+
+    if (data.correction) {
+      const fix = document.createElement('span');
+      fix.className = 'fix';
+      fix.textContent = '→ ' + data.correction;
+      fix.title = 'Nhấn để nghe';
+      fix.onclick = () => speak(data.correction);   // hear it said properly
+      fb.appendChild(fix);
+    }
+    log.insertBefore(fb, pending);
+  }
+
   pending.textContent = data.reply;
   pending.classList.remove('typing');
   pending.classList.add('speakable');
   pending.title = 'Nhấn để nghe lại';
   pending.onclick = () => speak(data.reply);   // tap a line to hear it again
+
+  if (data.reply_en) {
+    const gloss = document.createElement('span');
+    gloss.className = 'gloss';
+    gloss.textContent = data.reply_en;
+    pending.appendChild(gloss);
+  }
+
+  log.scrollTop = log.scrollHeight;
 
   if (data.topic_complete) {
     note('Hết chủ đề này — nhấn “Chủ đề mới” để bắt đầu lại.');

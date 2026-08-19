@@ -41,6 +41,10 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    reply_en: str = ""
+    feedback: str = ""
+    correction: str = ""
+    assessment: str = "good"
     session_id: str
     turn_count: int
     max_turns: int
@@ -60,9 +64,9 @@ def health():
 def chat_endpoint(req: ChatRequest):
     session_id, state = session_store.get_or_create(req.session_id)
     progress = load_progress(PROGRESS_JSON_PATH)
-    reply = chat(state, req.message, progress)
+    result = chat(state, req.message, progress)
     return ChatResponse(
-        reply=reply,
+        **result,
         session_id=session_id,
         turn_count=state.turn_count,
         max_turns=MAX_TURNS_PER_TOPIC,
@@ -95,10 +99,10 @@ async def voice_endpoint(
         )
 
     progress = load_progress(PROGRESS_JSON_PATH)
-    reply = await asyncio.to_thread(chat, state, transcript, progress)
+    result = await asyncio.to_thread(chat, state, transcript, progress)
     return VoiceResponse(
+        **result,
         transcript=transcript,
-        reply=reply,
         session_id=sid,
         turn_count=state.turn_count,
         max_turns=MAX_TURNS_PER_TOPIC,

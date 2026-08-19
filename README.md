@@ -202,8 +202,14 @@ Hold the mic → the recording is transcribed locally (faster-whisper, Vietnames
 → Ollama generates a reply grounded in your vocabulary file → the reply is
 spoken with the macOS `Linh` voice.
 
-- Replies may carry a short English gloss in parentheses. It is shown on screen
-  but **stripped before speech**, so the Vietnamese voice never reads English.
+Every turn also comes back with **feedback on your Vietnamese, in English**:
+a green ✓ when the sentence was right, an amber **Fix** naming the mistake and
+showing the whole sentence corrected, or a grey **?** when it could not make out
+what you said. Tap a correction to hear it spoken properly. Feedback is screen
+only — it is never read aloud.
+
+- Each reply carries an English translation underneath it, shown but not spoken,
+  so the Vietnamese voice never reads English.
 - **Tap any reply to hear it again.**
 - Conversations run about 10 exchanges per topic, then wrap up. *Chủ đề mới*
   starts a fresh one.
