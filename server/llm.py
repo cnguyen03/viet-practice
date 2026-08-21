@@ -73,6 +73,9 @@ on the conversation.
 "reply_en" — a plain English translation of YOUR "reply" field. It must match \
 your reply exactly. Do not translate the user's words here.
 
+NEVER write Chinese, Japanese or Korean characters in any field. Vietnamese is \
+written in the Latin alphabet with diacritics (e.g. "phở", not "河粉").
+
 Keep the whole conversation on ONE everyday topic (greetings, food, family, \
 directions), chosen from vocabulary they know. Do not drift between topics.
 
@@ -187,6 +190,31 @@ def looks_english(text: str) -> bool:
     return bool(_ENGLISH_MARKERS.search(text))
 
 
+# Qwen is a Chinese-trained model and sometimes answers in Chinese mid-sentence.
+# Spoken aloud by a Vietnamese voice this is gibberish, so it never ships.
+_CJK = re.compile(r"[一-鿿㐀-䶿぀-ヿ가-힯]")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?。！？])\s*")
+
+NO_CJK_DIRECTIVE = (
+    "Your previous answer contained Chinese characters. Vietnamese uses the Latin "
+    "alphabet with diacritics. Rewrite it using ONLY Vietnamese in \"reply\" and ONLY "
+    "English in \"feedback\" and \"reply_en\". Never output Chinese, Japanese or Korean."
+)
+
+FALLBACK_REPLY = "Xin lỗi, mình nói lại nhé. Bạn khỏe không?"
+FALLBACK_REPLY_EN = "Sorry, let me start again. How are you?"
+
+
+def has_cjk(text: str) -> bool:
+    return bool(_CJK.search(text))
+
+
+def strip_cjk(text: str) -> str:
+    """Drop whole sentences containing CJK, keeping the usable remainder."""
+    kept = [s for s in _SENTENCE_SPLIT.split(text) if s.strip() and not has_cjk(s)]
+    return " ".join(kept).strip()
+
+
 def chat(state: SessionState, user_message: str, progress: dict) -> dict:
     if state.topic is None:
         state.reset_topic("(let the model choose based on vocab)")
@@ -214,14 +242,26 @@ def chat(state: SessionState, user_message: str, progress: dict) -> dict:
             }
         )
 
-    response = _client.chat(model=OLLAMA_MODEL, messages=messages, format=REPLY_SCHEMA)
-    raw = response["message"]["content"].strip()
+    # Regenerate once if Chinese leaks in: a clean second attempt reads far
+    # better than a salvaged first one.
+    parsed = {}
+    for attempt in range(2):
+        response = _client.chat(model=OLLAMA_MODEL, messages=messages, format=REPLY_SCHEMA)
+        raw = response["message"]["content"].strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            # Never lose a turn to a malformed response — treat it as the reply.
+            parsed = {"assessment": "good", "feedback": "", "reply": raw, "reply_en": ""}
 
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        # Never lose a turn to a malformed response — treat it as the reply.
-        parsed = {"assessment": "good", "feedback": "", "reply": raw, "reply_en": ""}
+        contaminated = any(
+            has_cjk(str(parsed.get(field, "")))
+            for field in ("reply", "reply_en", "feedback", "correction")
+        )
+        if not contaminated:
+            break
+        if attempt == 0:
+            messages = messages + [{"role": "system", "content": NO_CJK_DIRECTIVE}]
 
     result = {
         "assessment": parsed.get("assessment", "good"),
@@ -236,6 +276,15 @@ def chat(state: SessionState, user_message: str, progress: dict) -> dict:
     }
     if result["assessment"] not in ("good", "needs_work", "unintelligible"):
         result["assessment"] = "good"
+
+    # Last resort if the retry also came back contaminated: drop the offending
+    # sentences outright rather than speak Chinese at a Vietnamese learner.
+    for field in ("reply", "reply_en", "feedback", "correction"):
+        if has_cjk(result[field]):
+            result[field] = strip_cjk(result[field])
+    if not result["reply"]:
+        result["reply"] = FALLBACK_REPLY
+        result["reply_en"] = FALLBACK_REPLY_EN
 
     # Feedback must be English and must exist — it is the whole point of the turn.
     if not result["feedback"] or not looks_english(result["feedback"]):
