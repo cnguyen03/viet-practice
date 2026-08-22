@@ -1,8 +1,16 @@
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-OLLAMA_MODEL = "qwen2.5:7b-instruct"
+# Gemma-based, with continued pre-training across Southeast Asian languages.
+# Chosen over qwen2.5:7b and gemma3:12b after benchmarking all three on real
+# failures from practice sessions: it writes the most idiomatic Vietnamese,
+# teaches whole sentences rather than fragments, and keeps feedback in English.
+# Override to try another without editing code: VP_MODEL=gemma3:12b …
+OLLAMA_MODEL = os.environ.get(
+    "VP_MODEL", "hf.co/aisingapore/Gemma-SEA-LION-v3-9B-IT-GGUF:Q4_K_M"
+)
 OLLAMA_HOST = "http://localhost:11434"
 
 PROGRESS_JSON_PATH = PROJECT_ROOT / "data" / "vietnamese_progress.json"

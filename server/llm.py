@@ -215,7 +215,12 @@ def strip_cjk(text: str) -> str:
     return " ".join(kept).strip()
 
 
-def chat(state: SessionState, user_message: str, progress: dict) -> dict:
+def chat(
+    state: SessionState,
+    user_message: str,
+    progress: dict,
+    model: str | None = None,
+) -> dict:
     if state.topic is None:
         state.reset_topic("(let the model choose based on vocab)")
 
@@ -245,8 +250,9 @@ def chat(state: SessionState, user_message: str, progress: dict) -> dict:
     # Regenerate once if Chinese leaks in: a clean second attempt reads far
     # better than a salvaged first one.
     parsed = {}
+    use_model = model or OLLAMA_MODEL
     for attempt in range(2):
-        response = _client.chat(model=OLLAMA_MODEL, messages=messages, format=REPLY_SCHEMA)
+        response = _client.chat(model=use_model, messages=messages, format=REPLY_SCHEMA)
         raw = response["message"]["content"].strip()
         try:
             parsed = json.loads(raw)

@@ -35,10 +35,21 @@ brew install ollama uv
 brew services start ollama
 ```
 
-### 2. Pull the language model (~4.7 GB)
+### 2. Pull the language model (~5.8 GB)
 
 ```bash
-ollama pull qwen2.5:7b-instruct
+ollama pull hf.co/aisingapore/Gemma-SEA-LION-v3-9B-IT-GGUF:Q4_K_M
+```
+
+Gemma-SEA-LION-v3-9B, from AI Singapore — Gemma with continued pre-training
+across Southeast Asian languages including Vietnamese. Chosen after
+benchmarking it against `qwen2.5:7b-instruct` and `gemma3:12b` on real failures
+from practice sessions (`uv run scripts/bench_models.py`).
+
+To try a different model without editing code:
+
+```bash
+VP_MODEL=gemma3:12b uv run python -m server.main
 ```
 
 ### 3. Install Python dependencies
